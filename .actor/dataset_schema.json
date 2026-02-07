@@ -1,0 +1,128 @@
+{
+    "actorSpecification": 1,
+    "fields": {
+        "title": "Hiring.Cafe Job Item",
+        "type": "object",
+        "properties": {
+            "job_id": {
+                "title": "Job ID",
+                "type": "string",
+                "description": "Unique job identifier from Hiring.Cafe"
+            },
+            "title": {
+                "title": "Title",
+                "type": "string",
+                "description": "Job title"
+            },
+            "company": {
+                "title": "Company",
+                "type": "string",
+                "description": "Company name"
+            },
+            "location": {
+                "title": "Location",
+                "type": "string",
+                "description": "Job location text"
+            },
+            "workplace_type": {
+                "title": "Workplace Type",
+                "type": "string",
+                "description": "Remote, Hybrid, or Onsite"
+            },
+            "commitment_type": {
+                "title": "Commitment Type",
+                "type": "string",
+                "description": "Employment type"
+            },
+            "compensation": {
+                "title": "Compensation",
+                "type": "string",
+                "description": "Salary or compensation text"
+            },
+            "date_posted": {
+                "title": "Date Posted",
+                "type": "string",
+                "description": "Posting date or timestamp"
+            },
+            "description_html": {
+                "title": "Description HTML",
+                "type": "string",
+                "description": "Raw HTML description with tags such as p, br, strong, h2, and h3"
+            },
+            "description_text": {
+                "title": "Description Text",
+                "type": "string",
+                "description": "Plain text job description"
+            },
+            "url": {
+                "title": "URL",
+                "type": "string",
+                "description": "Job URL"
+            }
+        }
+    },
+    "views": {
+        "overview": {
+            "title": "Overview",
+            "transformation": {
+                "fields": [
+                    "job_id",
+                    "title",
+                    "company",
+                    "location",
+                    "workplace_type",
+                    "commitment_type",
+                    "compensation",
+                    "date_posted",
+                    "description_html",
+                    "url"
+                ]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "job_id": {
+                        "label": "Job ID",
+                        "format": "text"
+                    },
+                    "title": {
+                        "label": "Title",
+                        "format": "text"
+                    },
+                    "company": {
+                        "label": "Company",
+                        "format": "text"
+                    },
+                    "location": {
+                        "label": "Location",
+                        "format": "text"
+                    },
+                    "workplace_type": {
+                        "label": "Workplace Type",
+                        "format": "text"
+                    },
+                    "commitment_type": {
+                        "label": "Commitment",
+                        "format": "text"
+                    },
+                    "compensation": {
+                        "label": "Compensation",
+                        "format": "text"
+                    },
+                    "date_posted": {
+                        "label": "Posted",
+                        "format": "text"
+                    },
+                    "description_html": {
+                        "label": "Description HTML",
+                        "format": "text"
+                    },
+                    "url": {
+                        "label": "URL",
+                        "format": "link"
+                    }
+                }
+            }
+        }
+    }
+}

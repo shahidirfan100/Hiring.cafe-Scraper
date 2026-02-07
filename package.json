@@ -1,0 +1,22 @@
+{
+  "name": "hiring-cafe-jobs-scraper",
+  "version": "1.0",
+  "description": "Production-ready Hiring.Cafe jobs scraper for Apify.",
+  "type": "module",
+  "dependencies": {
+    "apify": "^3.5.2",
+    "crawlee": "^3.15.3",
+    "playwright": "^1.56.1"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "postinstall": "npx playwright install firefox",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "test": "node --check src/main.js"
+  },
+  "author": "Shahid Irfan",
+  "license": "ISC"
+}

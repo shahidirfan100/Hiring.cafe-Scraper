@@ -1,0 +1,68 @@
+{
+    "title": "Hiring.Cafe Jobs Scraper",
+    "description": "Extract job listings from Hiring.Cafe using API-backed search with browser verification handling.",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "startUrl": {
+            "title": "Start URL",
+            "type": "string",
+            "description": "Hiring.Cafe URL used for session bootstrap before API calls.",
+            "editor": "textfield",
+            "default": "https://hiring.cafe",
+            "prefill": "https://hiring.cafe"
+        },
+        "keyword": {
+            "title": "Keyword",
+            "type": "string",
+            "description": "Search keyword, for example: software engineer.",
+            "editor": "textfield",
+            "default": "software engineer",
+            "prefill": "software engineer"
+        },
+        "location": {
+            "title": "Location",
+            "type": "string",
+            "description": "Optional location filter. Exact API location mapping currently supports United States.",
+            "editor": "textfield",
+            "default": "United States",
+            "prefill": "United States"
+        },
+        "workplaceType": {
+            "title": "Workplace Type",
+            "type": "string",
+            "description": "Filter by workplace type.",
+            "editor": "select",
+            "enum": ["Any", "Remote", "Hybrid", "Onsite"],
+            "enumTitles": ["Any", "Remote", "Hybrid", "Onsite"],
+            "default": "Any"
+        },
+        "results_wanted": {
+            "title": "Maximum jobs",
+            "type": "integer",
+            "description": "Maximum number of jobs to save to dataset.",
+            "minimum": 1,
+            "default": 20,
+            "editor": "number"
+        },
+        "max_pages": {
+            "title": "Maximum pages",
+            "type": "integer",
+            "description": "Safety cap for API pagination.",
+            "minimum": 1,
+            "default": 10,
+            "editor": "number"
+        },
+        "proxyConfiguration": {
+            "title": "Proxy configuration",
+            "type": "object",
+            "description": "Proxy settings. Recommended if you encounter 429 or verification blocks.",
+            "editor": "proxy",
+            "default": {
+                "useApifyProxy": true
+            }
+        }
+    },
+    "required": [],
+    "additionalProperties": false
+}
