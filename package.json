@@ -10,7 +10,6 @@
   },
   "scripts": {
     "start": "node src/main.js",
-    "postinstall": "npx playwright install firefox",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint",

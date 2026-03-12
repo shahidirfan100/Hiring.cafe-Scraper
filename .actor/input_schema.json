@@ -59,7 +59,8 @@
             "description": "Proxy settings. Recommended if you encounter 429 or verification blocks.",
             "editor": "proxy",
             "default": {
-                "useApifyProxy": true
+                "useApifyProxy": true,
+                "apifyProxyGroups": ["RESIDENTIAL"]
             }
         }
     },
