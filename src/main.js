@@ -10,6 +10,7 @@ const DEFAULT_RESULTS_WANTED = 20;
 const DEFAULT_MAX_PAGES = 10;
 const DEFAULT_PAGE_SIZE = 40;
 const DEFAULT_DATE_FETCHED_PAST_DAYS = 61;
+const DEFAULT_KEYWORD_PREFILL = 'software engineer';
 
 // CONFIGURATION
 const USER_AGENTS = [
@@ -111,25 +112,136 @@ const stripHtml = (htmlText) => {
     return toText(text.replace(/<[^>]*>/g, ' '));
 };
 
+const sanitizeUrlForLog = (value) => {
+    const text = toText(value);
+    if (!text) return '';
+
+    try {
+        const url = new URL(text);
+        if (url.searchParams.has('s')) {
+            url.searchParams.set('s', '[searchState]');
+        }
+        const compact = url.toString();
+        return compact.length > 220 ? `${compact.slice(0, 220)}...` : compact;
+    } catch {
+        return text.length > 220 ? `${text.slice(0, 220)}...` : text;
+    }
+};
+
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const fetchWithTimeout = async (url, options = {}) => {
+    const { timeoutMs = 12000, ...fetchOptions } = options;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, {
+            ...fetchOptions,
+            signal: controller.signal,
+        });
+    } finally {
+        clearTimeout(timer);
+    }
+};
 const isBlockedText = (text) => /just a moment|security checkpoint|verif(y|ying).{0,30}(human|browser)|performing security verification|enable javascript to continue|access denied|captcha|cloudflare/i.test(text || '');
 const encodeLegacySearchState = (searchState) => Buffer.from(
     encodeURIComponent(JSON.stringify(searchState)),
     'utf8',
 ).toString('base64');
 
-const createSearchState = ({ keyword, location, workplaceType }) => {
+const decodeLegacySearchState = (encodedState) => {
+    const value = toText(encodedState);
+    if (!value) return null;
+
+    const candidates = [value];
+    try {
+        candidates.push(decodeURIComponent(value));
+    } catch {
+        // noop
+    }
+
+    for (const candidate of candidates) {
+        try {
+            const decoded = Buffer.from(candidate, 'base64').toString('utf8');
+            try {
+                return JSON.parse(decoded);
+            } catch {
+                return JSON.parse(decodeURIComponent(decoded));
+            }
+        } catch {
+            // try next candidate
+        }
+    }
+
+    return null;
+};
+
+const parseSearchStateFromUrl = (urlValue) => {
+    const absolute = toAbsoluteUrl(urlValue);
+    if (!absolute) return null;
+
+    try {
+        const url = new URL(absolute);
+        const searchStateParam = url.searchParams.get('searchState');
+        if (searchStateParam) {
+            return JSON.parse(searchStateParam);
+        }
+
+        const legacyStateParam = url.searchParams.get('s');
+        if (legacyStateParam) {
+            return decodeLegacySearchState(legacyStateParam);
+        }
+    } catch {
+        return null;
+    }
+
+    return null;
+};
+
+const extractLocationFromSearchState = (searchState) => {
+    if (!searchState || !Array.isArray(searchState.locations) || searchState.locations.length === 0) return null;
+
+    const first = searchState.locations[0] || {};
+    return toText(
+        first.formatted_address ||
+        first.description ||
+        first.long_name ||
+        first.name,
+    );
+};
+
+const extractWorkplaceTypeFromSearchState = (searchState) => {
+    if (!searchState || !Array.isArray(searchState.workplaceTypes) || searchState.workplaceTypes.length === 0) return null;
+    const normalized = searchState.workplaceTypes
+        .map((value) => toText(value))
+        .filter(Boolean);
+    if (normalized.length === 0) return null;
+
+    const unique = new Set(normalized);
+    const allTypes = ['Remote', 'Hybrid', 'Onsite'];
+    if (allTypes.every((type) => unique.has(type))) return 'Any';
+    if (unique.size === 1 && allTypes.includes(normalized[0])) return normalized[0];
+
+    return 'Any';
+};
+
+const createSearchState = ({ keyword, location, workplaceType, baseSearchState = null }) => {
     const normalizedLocation = toText(location);
     const workplaceTypes = workplaceType === 'Any' ? ['Remote', 'Hybrid', 'Onsite'] : [workplaceType];
 
     const searchState = {
-        locations: [],
-        workplaceTypes,
-        defaultToUserLocation: false,
-        userLocation: null,
-        searchQuery: keyword || '',
-        dateFetchedPastNDays: DEFAULT_DATE_FETCHED_PAST_DAYS,
+        locations: Array.isArray(baseSearchState?.locations) ? baseSearchState.locations : [],
+        workplaceTypes: Array.isArray(baseSearchState?.workplaceTypes) && baseSearchState.workplaceTypes.length > 0
+            ? baseSearchState.workplaceTypes
+            : workplaceTypes,
+        defaultToUserLocation: baseSearchState?.defaultToUserLocation ?? false,
+        userLocation: baseSearchState?.userLocation ?? null,
+        searchQuery: keyword || baseSearchState?.searchQuery || '',
+        dateFetchedPastNDays: Number.isFinite(Number(baseSearchState?.dateFetchedPastNDays))
+            ? Number(baseSearchState.dateFetchedPastNDays)
+            : DEFAULT_DATE_FETCHED_PAST_DAYS,
     };
+
+    searchState.workplaceTypes = workplaceTypes;
 
     if (normalizedLocation?.toLowerCase() === 'united states') {
         searchState.locations = [{
@@ -151,6 +263,8 @@ const createSearchState = ({ keyword, location, workplaceType }) => {
                 flexible_regions: ['anywhere_in_continent', 'anywhere_in_world'],
             },
         }];
+    } else if (!normalizedLocation && Array.isArray(baseSearchState?.locations) && baseSearchState.locations.length > 0) {
+        searchState.locations = baseSearchState.locations;
     }
 
     return searchState;
@@ -318,6 +432,25 @@ const normalizeJob = (rawJob) => {
 };
 
 const normalizeForMatch = (value) => toText(value)?.toLowerCase() || null;
+const getKeywordTokens = (value) => {
+    const normalized = normalizeForMatch(value);
+    if (!normalized) return [];
+    return normalized
+        .split(/[^a-z0-9]+/i)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 2);
+};
+const getRawJobDedupeKey = (rawJob) => toText(
+    rawJob?.id ||
+    rawJob?.jobId ||
+    rawJob?._id ||
+    rawJob?.uuid ||
+    rawJob?.slug ||
+    rawJob?.objectID ||
+    rawJob?.apply_url ||
+    rawJob?.url ||
+    rawJob?.job_url,
+);
 
 const matchesOutputFilters = ({ item, keyword, location, workplaceType }) => {
     const normalizedKeyword = normalizeForMatch(keyword);
@@ -330,7 +463,12 @@ const matchesOutputFilters = ({ item, keyword, location, workplaceType }) => {
             item.commitment_type,
             item.location,
         ].filter(Boolean).join(' '));
-        if (!haystack || !haystack.includes(normalizedKeyword)) return false;
+        if (!haystack) return false;
+        if (!haystack.includes(normalizedKeyword)) {
+            const keywordTokens = getKeywordTokens(normalizedKeyword);
+            const hasAllTokens = keywordTokens.length > 0 && keywordTokens.every((token) => haystack.includes(token));
+            if (!hasAllTokens) return false;
+        }
     }
 
     if (workplaceType && workplaceType !== 'Any') {
@@ -391,53 +529,86 @@ const buildBatchFromRawJobs = ({
     return batch;
 };
 
-const fetchJobsFromUrlscanCache = async ({ crawlerLog, maxScans = 8 }) => {
+const fetchJobsFromUrlscanCache = async ({
+    crawlerLog,
+    maxScans = 16,
+    maxCachedResponses = 16,
+    maxJobsToCollect = 320,
+}) => {
     const scansUrl = `https://urlscan.io/api/v1/search/?q=domain:${new URL(BASE_URL).hostname}&size=${maxScans}`;
-    const scansResponse = await fetch(scansUrl);
+    const scansResponse = await fetchWithTimeout(scansUrl, { timeoutMs: 12000 });
     if (!scansResponse.ok) {
         throw new Error(`URLScan search failed with status ${scansResponse.status}`);
     }
 
     const scansJson = await scansResponse.json();
     const scans = Array.isArray(scansJson?.results) ? scansJson.results : [];
+    const seenHashes = new Set();
+    const seenRawJobs = new Set();
+    const collectedJobs = [];
+    const scanIdsUsed = new Set();
+    let inspectedResponses = 0;
 
     for (const scan of scans) {
+        if (inspectedResponses >= maxCachedResponses || collectedJobs.length >= maxJobsToCollect) break;
+
         const scanId = scan?.task?.uuid;
         if (!scanId) continue;
 
         try {
-            const resultResponse = await fetch(`https://urlscan.io/api/v1/result/${scanId}/`);
+            const resultResponse = await fetchWithTimeout(`https://urlscan.io/api/v1/result/${scanId}/`, { timeoutMs: 12000 });
             if (!resultResponse.ok) continue;
             const resultJson = await resultResponse.json();
-
-            const apiRequest = (resultJson?.data?.requests || []).find((entry) => {
+            const apiRequests = (resultJson?.data?.requests || []).filter((entry) => {
                 const requestUrl = entry?.request?.request?.url || '';
                 return requestUrl.includes('/api/search-jobs') && !requestUrl.includes('/get-total-count') && entry?.response?.hash;
             });
-            if (!apiRequest?.response?.hash) continue;
 
-            const cachedResponse = await fetch(`https://urlscan.io/responses/${apiRequest.response.hash}/`);
-            if (!cachedResponse.ok) continue;
-            const cachedText = await cachedResponse.text();
+            for (const apiRequest of apiRequests) {
+                if (inspectedResponses >= maxCachedResponses || collectedJobs.length >= maxJobsToCollect) break;
 
-            let cachedJson = null;
-            try {
-                cachedJson = JSON.parse(cachedText);
-            } catch {
-                cachedJson = null;
-            }
+                const responseHash = apiRequest?.response?.hash;
+                if (!responseHash || seenHashes.has(responseHash)) continue;
 
-            const jobs = extractJobsArray(cachedJson);
-            if (jobs.length > 0) {
-                crawlerLog.warning(`Using URLScan cached API data from scan ${scanId} because live API is blocked.`);
-                return jobs;
+                seenHashes.add(responseHash);
+                inspectedResponses++;
+
+                const cachedResponse = await fetchWithTimeout(`https://urlscan.io/responses/${responseHash}/`, { timeoutMs: 12000 });
+                if (!cachedResponse.ok) continue;
+                const cachedText = await cachedResponse.text();
+
+                let cachedJson = null;
+                try {
+                    cachedJson = JSON.parse(cachedText);
+                } catch {
+                    cachedJson = null;
+                }
+
+                const jobs = extractJobsArray(cachedJson);
+                if (jobs.length === 0) continue;
+
+                scanIdsUsed.add(scanId);
+                for (const rawJob of jobs) {
+                    if (collectedJobs.length >= maxJobsToCollect) break;
+                    const dedupeKey = getRawJobDedupeKey(rawJob);
+                    if (!dedupeKey || seenRawJobs.has(dedupeKey)) continue;
+                    seenRawJobs.add(dedupeKey);
+                    collectedJobs.push(rawJob);
+                }
             }
         } catch (error) {
-            crawlerLog.warning(`URLScan fallback scan ${scanId} failed: ${error.message}`);
+            crawlerLog.info(`URLScan fallback scan ${scanId} failed: ${error.message}`);
         }
     }
 
-    return [];
+    if (collectedJobs.length > 0) {
+        const scanInfo = Array.from(scanIdsUsed).slice(0, 5).join(', ');
+        crawlerLog.info(
+            `Using URLScan cached API data from ${scanIdsUsed.size} scans (${scanInfo}${scanIdsUsed.size > 5 ? ', ...' : ''}) because live API is blocked.`,
+        );
+    }
+
+    return collectedJobs;
 };
 
 const isChallengeResponse = (text) => isBlockedText(text);
@@ -458,7 +629,7 @@ const waitForVerificationClearance = async ({ page, crawlerLog, timeoutMs = 3000
         await page.waitForTimeout(2500);
     }
 
-    crawlerLog.warning('Browser verification did not clear before timeout.');
+    crawlerLog.info('Browser verification did not clear before timeout.');
     return false;
 };
 
@@ -499,26 +670,28 @@ const getWithRetry = async ({ page, url, attempts, crawlerLog }) => {
         const response = await callApiInPage({ page, url });
         if (response.ok) return response;
 
-        const error = new Error(`API ${url} returned ${response.status}. Body: ${response.textSnippet}`);
+        const error = new Error(`API ${sanitizeUrlForLog(url)} returned ${response.status}`);
         error.status = response.status;
         error.body = response.textSnippet;
         error.url = url;
         lastError = error;
 
         if (response.status === 403 && isChallengeResponse(response.textSnippet)) {
-            crawlerLog.warning(`Anti-bot challenge detected on ${url}. Waiting for verification clearance...`);
-            await waitForVerificationClearance({
-                page,
-                crawlerLog,
-                timeoutMs: 15000,
-            });
+            crawlerLog.info(`Anti-bot challenge detected on ${sanitizeUrlForLog(url)}.`);
+            if (attempt < attempts) {
+                await waitForVerificationClearance({
+                    page,
+                    crawlerLog,
+                    timeoutMs: 8000,
+                });
+            }
         }
 
         const retryable = [401, 403, 408, 409, 425, 429, 500, 502, 503, 504].includes(response.status);
         if (!retryable || attempt === attempts) break;
 
         const sleepMs = Math.min(1000 * (2 ** (attempt - 1)), 8000) + Math.floor(Math.random() * 500);
-        crawlerLog.warning(`Retrying ${url} after status ${response.status} (attempt ${attempt}/${attempts})`);
+        crawlerLog.info(`Retrying ${sanitizeUrlForLog(url)} after status ${response.status} (attempt ${attempt}/${attempts})`);
         await page.waitForTimeout(sleepMs);
     }
 
@@ -529,17 +702,38 @@ await Actor.init();
 
 try {
     const input = (await Actor.getInput()) || {};
-    const keyword = toText(input.keyword) || '';
-    const location = toText(input.location);
-    const workplaceTypeInput = toText(input.workplaceType) || 'Any';
-    const workplaceType = ['Any', 'Remote', 'Hybrid', 'Onsite'].includes(workplaceTypeInput)
+    const startUrl = toAbsoluteUrl(input.startUrl) || BASE_URL;
+    const startUrlSearchState = parseSearchStateFromUrl(startUrl);
+
+    const keywordInput = toText(input.keyword);
+    const keywordFromStartUrl = toText(startUrlSearchState?.searchQuery);
+    const shouldUseStartUrlKeyword = keywordFromStartUrl && (!keywordInput || keywordInput.toLowerCase() === DEFAULT_KEYWORD_PREFILL);
+    const keyword = shouldUseStartUrlKeyword
+        ? keywordFromStartUrl
+        : (keywordInput || keywordFromStartUrl || '');
+
+    const locationInput = toText(input.location);
+    const locationFromStartUrl = extractLocationFromSearchState(startUrlSearchState);
+    const shouldUseStartUrlLocation = locationFromStartUrl
+        && (!locationInput || ['united states', 'usa', 'us'].includes(locationInput.toLowerCase()));
+    const location = shouldUseStartUrlLocation
+        ? locationFromStartUrl
+        : (locationInput || locationFromStartUrl);
+
+    const workplaceTypeInput = toText(input.workplaceType);
+    const normalizedWorkplaceInput = ['Any', 'Remote', 'Hybrid', 'Onsite'].includes(workplaceTypeInput || '')
         ? workplaceTypeInput
-        : 'Any';
+        : null;
+    const workplaceTypeFromStartUrl = extractWorkplaceTypeFromSearchState(startUrlSearchState);
+    const shouldUseStartUrlWorkplace = workplaceTypeFromStartUrl
+        && (!normalizedWorkplaceInput || normalizedWorkplaceInput === 'Any');
+    const workplaceType = shouldUseStartUrlWorkplace
+        ? workplaceTypeFromStartUrl
+        : (normalizedWorkplaceInput || workplaceTypeFromStartUrl || 'Any');
 
     const resultsWanted = toNumber(input.results_wanted, DEFAULT_RESULTS_WANTED);
     const maxPages = toNumber(input.max_pages, DEFAULT_MAX_PAGES);
     const pageSize = DEFAULT_PAGE_SIZE;
-    const startUrl = toAbsoluteUrl(input.startUrl) || BASE_URL;
 
     const proxyConfigurationInput = input.proxyConfiguration ?? { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] };
     let proxyConfiguration;
@@ -554,6 +748,7 @@ try {
         keyword,
         location,
         workplaceType,
+        baseSearchState: startUrlSearchState,
     });
     const legacyEncodedSearchState = encodeLegacySearchState(searchState);
     const searchPageUrl = createSearchPageUrl({
@@ -630,49 +825,33 @@ try {
 
             const postWaitTitle = await page.title().catch(() => '');
             const postWaitBody = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '').catch(() => '');
-            if (isBlockedText(`${postWaitTitle} ${postWaitBody}`)) {
+            const challengeVisibleAfterBootstrap = isBlockedText(`${postWaitTitle} ${postWaitBody}`);
+            const apiAttempts = challengeVisibleAfterBootstrap ? 1 : 4;
+            if (challengeVisibleAfterBootstrap) {
+                crawlerLog.info('Verification text is still visible after wait. Attempting API calls before fallback.');
                 const debugHtml = await page.content().catch(() => null);
                 if (debugHtml) {
                     await Actor.setValue('DEBUG_BLOCKED_PAGE', debugHtml, { contentType: 'text/html' });
                 }
-
-                const fallbackJobs = await fetchJobsFromUrlscanCache({ crawlerLog }).catch(() => []);
-                if (fallbackJobs.length > 0) {
-                    const fallbackBatch = buildBatchFromRawJobs({
-                        rawJobs: fallbackJobs,
-                        state,
-                        resultsWanted,
-                        keyword,
-                        location,
-                        workplaceType,
-                    });
-                    if (fallbackBatch.length > 0) {
-                        await Actor.pushData(fallbackBatch);
-                        state.saved += fallbackBatch.length;
-                        state.totalEstimated = state.totalEstimated ?? fallbackJobs.length;
-                        crawlerLog.info(`Saved ${state.saved}/${resultsWanted} jobs from fallback cache`);
-                        return;
-                    }
-                }
-
-                throw new Error('Anti-bot challenge still active after waiting for verification.');
             }
 
-            for (const countUrl of [COUNT_ENDPOINT, `${COUNT_ENDPOINT}?s=${encodeURIComponent(legacyEncodedSearchState)}`]) {
-                try {
-                    const countResponse = await getWithRetry({
-                        page,
-                        url: countUrl,
-                        attempts: 4,
-                        crawlerLog,
-                    });
-                    const totalCount = Number(countResponse?.json?.total);
-                    if (Number.isFinite(totalCount) && totalCount >= 0) {
-                        state.totalEstimated = totalCount;
-                        break;
+            if (!challengeVisibleAfterBootstrap) {
+                for (const countUrl of [COUNT_ENDPOINT, `${COUNT_ENDPOINT}?s=${encodeURIComponent(legacyEncodedSearchState)}`]) {
+                    try {
+                        const countResponse = await getWithRetry({
+                            page,
+                            url: countUrl,
+                            attempts: apiAttempts,
+                            crawlerLog,
+                        });
+                        const totalCount = Number(countResponse?.json?.total);
+                        if (Number.isFinite(totalCount) && totalCount >= 0) {
+                            state.totalEstimated = totalCount;
+                            break;
+                        }
+                    } catch (error) {
+                        crawlerLog.info(`Count endpoint unavailable for ${sanitizeUrlForLog(countUrl)}: ${error.message}`);
                     }
-                } catch (error) {
-                    crawlerLog.warning(`Count endpoint unavailable for ${countUrl}: ${error.message}`);
                 }
             }
 
@@ -696,7 +875,7 @@ try {
                 let lastError = null;
                 for (const apiUrl of candidateUrls) {
                     try {
-                        const response = await getWithRetry({ page, url: apiUrl, attempts: 4, crawlerLog });
+                        const response = await getWithRetry({ page, url: apiUrl, attempts: apiAttempts, crawlerLog });
                         const jobs = extractJobsArray(response.json);
                         if (jobs.length > 0) return jobs;
 
@@ -704,7 +883,7 @@ try {
                         if (pageIndex > 0) return [];
                     } catch (error) {
                         lastError = error;
-                        crawlerLog.warning(`Search API variant failed: ${apiUrl} (${error.message})`);
+                        crawlerLog.info(`Search API variant failed: ${sanitizeUrlForLog(apiUrl)} (${error.message})`);
                     }
                 }
 
@@ -728,7 +907,15 @@ try {
                         }
 
                         if (pageIndex === 0 && state.saved === 0) {
-                            const fallbackJobs = await fetchJobsFromUrlscanCache({ crawlerLog }).catch(() => []);
+                            const fallbackMaxScans = Math.max(16, Math.min(40, Math.ceil(resultsWanted / 2)));
+                            const fallbackMaxCachedResponses = Math.max(16, Math.min(48, Math.ceil(resultsWanted / 3)));
+                            const fallbackMaxJobsToCollect = Math.max(320, resultsWanted * 20);
+                            const fallbackJobs = await fetchJobsFromUrlscanCache({
+                                crawlerLog,
+                                maxScans: fallbackMaxScans,
+                                maxCachedResponses: fallbackMaxCachedResponses,
+                                maxJobsToCollect: fallbackMaxJobsToCollect,
+                            }).catch(() => []);
                             if (fallbackJobs.length > 0) {
                                 const fallbackBatch = buildBatchFromRawJobs({
                                     rawJobs: fallbackJobs,
@@ -743,6 +930,11 @@ try {
                                     state.saved += fallbackBatch.length;
                                     state.totalEstimated = state.totalEstimated ?? fallbackJobs.length;
                                     crawlerLog.info(`Saved ${state.saved}/${resultsWanted} jobs from fallback cache`);
+                                    if (state.saved < resultsWanted) {
+                                        crawlerLog.info(
+                                            `Live API stayed blocked; fallback cache provided ${state.saved}/${resultsWanted} jobs.`,
+                                        );
+                                    }
                                     break;
                                 }
                             }
