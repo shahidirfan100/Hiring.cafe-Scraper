@@ -1,13 +1,13 @@
 {
     "title": "Hiring.Cafe Jobs Scraper",
-    "description": "Extract job listings from Hiring.Cafe using API-backed search with browser verification handling.",
+    "description": "Extract job listings from Hiring.Cafe using the live Next.js SSR search payload.",
     "type": "object",
     "schemaVersion": 1,
     "properties": {
         "startUrl": {
             "title": "Start URL",
             "type": "string",
-            "description": "Hiring.Cafe URL used for session bootstrap before API calls.",
+            "description": "Hiring.Cafe URL used to bootstrap the SSR search payload.",
             "editor": "textfield",
             "default": "https://hiring.cafe",
             "prefill": "https://hiring.cafe"
@@ -23,7 +23,7 @@
         "location": {
             "title": "Location",
             "type": "string",
-            "description": "Optional location filter. Exact API location mapping currently supports United States.",
+            "description": "Optional location filter. Exact location mapping currently supports United States.",
             "editor": "textfield",
             "default": "United States",
             "prefill": "United States"
@@ -35,7 +35,8 @@
             "editor": "select",
             "enum": ["Any", "Remote", "Hybrid", "Onsite"],
             "enumTitles": ["Any", "Remote", "Hybrid", "Onsite"],
-            "default": "Any"
+            "default": "Any",
+            "prefill": "Any"
         },
         "results_wanted": {
             "title": "Maximum jobs",
@@ -43,20 +44,22 @@
             "description": "Maximum number of jobs to save to dataset.",
             "minimum": 1,
             "default": 20,
+            "prefill": 20,
             "editor": "number"
         },
         "max_pages": {
             "title": "Maximum pages",
             "type": "integer",
-            "description": "Safety cap for API pagination.",
+            "description": "Safety cap for SSR pagination.",
             "minimum": 1,
             "default": 10,
+            "prefill": 5,
             "editor": "number"
         },
         "proxyConfiguration": {
             "title": "Proxy configuration",
             "type": "object",
-            "description": "Proxy settings. Recommended if you encounter 429 or verification blocks.",
+            "description": "Proxy settings for future fallback strategies if Hiring.Cafe changes again.",
             "editor": "proxy",
             "default": {
                 "useApifyProxy": true,

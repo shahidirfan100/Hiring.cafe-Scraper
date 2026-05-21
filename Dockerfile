@@ -1,4 +1,4 @@
-FROM apify/actor-node-playwright-firefox:22-1.56.1
+FROM apify/actor-node-playwright-chrome:24-1.59.1
 
 COPY --chown=myuser:myuser package*.json ./
 RUN npm install --omit=dev --omit=optional && rm -rf ~/.npm

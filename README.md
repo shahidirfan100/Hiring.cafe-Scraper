@@ -1,15 +1,16 @@
 # Hiring.Cafe Jobs Scraper
 
-Extract comprehensive job data from Hiring.Cafe with ease. Collect job listings including titles, companies, locations, and descriptions at scale. Perfect for job market research, recruitment automation, and hiring trend analysis.
+Extract comprehensive job data from Hiring.Cafe with a stable SSR-backed search flow. Collect job listings including titles, companies, locations, compensation, and descriptions at scale for research, recruiting, and monitoring.
 
 ## Features
 
+- **Live Search Payload** — Uses the current Next.js SSR search transport that is working as of 2026-05-21
 - **Keyword Search** — Find jobs by specific terms and roles
 - **Location Filtering** — Target jobs in specific regions
 - **Workplace Type Options** — Filter by remote, hybrid, or onsite positions
 - **Pagination Control** — Collect data across multiple result pages
 - **Structured Output** — Clean, normalized job data for easy processing
-- **Anti-Bot Handling** — Reliable extraction with built-in verification flow
+- **Rich Source Data** — Pulls from HiringCafe's structured search payload instead of brittle page scraping
 
 ## Use Cases
 
@@ -34,13 +35,13 @@ Create comprehensive datasets for labor market analysis and economic research. C
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `startUrl` | String | No | `"https://hiring.cafe"` | Session bootstrap URL |
+| `startUrl` | String | No | `"https://hiring.cafe"` | Search bootstrap URL |
 | `keyword` | String | No | — | Search keyword (e.g., "software engineer") |
 | `location` | String | No | — | Location filter (supports "United States") |
 | `workplaceType` | String | No | `"Any"` | Workplace type: "Any", "Remote", "Hybrid", or "Onsite" |
 | `results_wanted` | Integer | No | `20` | Maximum jobs to collect |
-| `max_pages` | Integer | No | `10` | Maximum API pages to process |
-| `proxyConfiguration` | Object | No | — | Proxy settings for reliability |
+| `max_pages` | Integer | No | `10` | Maximum SSR pages to process |
+| `proxyConfiguration` | Object | No | — | Reserved for future fallback strategies |
 
 ---
 
@@ -58,7 +59,7 @@ Each item in the dataset contains:
 | `commitment_type` | String | Full Time, Part Time, etc. |
 | `compensation` | String | Salary/compensation information |
 | `date_posted` | String | Job posting date |
-| `description_html` | String | Raw HTML description with tags like p, br, strong, h2, h3 |
+| `description_html` | String | Sanitized HTML description |
 | `description_text` | String | Full job description text |
 | `url` | String | Direct link to job posting |
 
@@ -68,8 +69,6 @@ Each item in the dataset contains:
 
 ### Basic Job Search
 
-Extract software engineering jobs:
-
 ```json
 {
     "keyword": "software engineer",
@@ -78,8 +77,6 @@ Extract software engineering jobs:
 ```
 
 ### Remote Jobs Only
-
-Find remote positions in specific locations:
 
 ```json
 {
@@ -92,8 +89,6 @@ Find remote positions in specific locations:
 ```
 
 ### Advanced Filtering
-
-Apply multiple filters for targeted results:
 
 ```json
 {
@@ -110,38 +105,24 @@ Apply multiple filters for targeted results:
 
 ```json
 {
-    "job_id": "abc123",
-    "title": "Senior Software Engineer",
-    "company": "Example Labs",
-    "location": "United States",
-    "workplace_type": "Remote",
+    "job_id": "grnhse___reltio___5990272004",
+    "title": "Software Engineer",
+    "company": "Reltio",
+    "location": "Bengaluru, Karnataka, India",
+    "workplace_type": "Hybrid",
     "commitment_type": "Full Time",
-    "compensation": "USD 140000 - 180000 Yearly",
-    "date_posted": "2026-02-06T11:20:00.000Z",
-    "description_html": "<h2>About the role</h2><p>Build and maintain production services...</p>",
-    "description_text": "Build and maintain production services...",
-    "url": "https://hiring.cafe/jobs/abc123"
+    "date_posted": "2026-05-21T05:55:30.000Z",
+    "url": "https://job-boards.greenhouse.io/reltio/jobs/5990272004"
 }
 ```
 
 ---
 
-## Tips for Best Results
+## Notes
 
-### Optimize Search Terms
-- Use specific job titles and skills
-- Combine multiple keywords for broader results
-- Test different variations of the same role
-
-### Choose Appropriate Limits
-- Start with smaller result counts for testing
-- Increase max_pages for comprehensive collection
-- Balance speed with data volume needs
-
-### Handle Location Filtering
-- Currently supports "United States" mapping
-- Leave empty for global results
-- Verify location format matches API expectations
+- The old `/api/search-jobs` endpoint is no longer reliable. This actor now reads the live SSR search payload that the current site serves.
+- HiringCafe's own search relevance can be broad, so some results may be adjacent matches rather than exact title matches.
+- For local `npm start` tests, place your input in `storage/key_value_stores/default/INPUT.json` if you want Apify runtime to pick it up automatically.
 
 ---
 
@@ -155,49 +136,6 @@ Connect your job data with:
 - **Webhooks** — Send data to custom applications
 - **Make** — Create automated job monitoring workflows
 - **Zapier** — Trigger actions based on new jobs
-
-### Export Formats
-
-Download data in multiple formats:
-
-- **JSON** — For developers and APIs
-- **CSV** — For spreadsheet analysis
-- **Excel** — For business reporting
-- **XML** — For system integrations
-
----
-
-## Frequently Asked Questions
-
-### How many jobs can I collect?
-You can collect all available matching jobs. The practical limit depends on your search criteria and the website's data availability.
-
-### Can I search for jobs in specific locations?
-Yes, the actor supports location filtering. Currently optimized for "United States" searches with automatic API mapping.
-
-### What if some job fields are empty?
-Some fields may be empty if the source data doesn't provide that information. The actor extracts all available data.
-
-### How does workplace type filtering work?
-You can filter by "Remote", "Hybrid", "Onsite", or "Any". This helps narrow results to your preferred work arrangements.
-
-### Can I monitor jobs over time?
-Yes, schedule regular runs to track new job postings and hiring trends using Apify's scheduling features.
-
-### What happens if the website blocks requests?
-The actor includes anti-bot handling and proxy support to ensure reliable data collection.
-
----
-
-## Support
-
-For issues or feature requests, contact support through the Apify Console.
-
-### Resources
-
-- [Apify Documentation](https://docs.apify.com/)
-- [API Reference](https://docs.apify.com/api/v2)
-- [Scheduling Runs](https://docs.apify.com/schedules)
 
 ---
 
